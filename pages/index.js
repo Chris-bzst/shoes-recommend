@@ -13,11 +13,20 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
   const [chatHistory, setChatHistory] = useState([]);
   const messagesEndRef = useRef(null);
   
+  // 添加模型轮换状态
+  const [currentModelIndex, setCurrentModelIndex] = useState(0);
+  const availableModels = [
+    'claude-3-7-sonnet-20250219',
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-sonnet-20240620'
+  ];
+  
   // API stats
   const [apiStats, setApiStats] = useState({
     totalCost: 0,
     totalCalls: 0,
-    lastCallStats: null
+    lastCallStats: null,
+    currentModel: availableModels[0] // 添加当前模型信息
   });
 
   // Initialize chat history with system prompt when it becomes available
@@ -99,6 +108,9 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
     const startTime = Date.now();
     
     try {
+      // 获取当前模型
+      const currentModel = availableModels[currentModelIndex];
+      console.log(`Calling Claude API with model: ${currentModel}`);
       console.log('Calling Claude API with messages:', messages);
       
       const response = await fetch('/api/claude', {
@@ -108,7 +120,7 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
         },
         body: JSON.stringify({
           messages: messages,
-          model: 'claude-3-7-sonnet-20250219',
+          model: currentModel,
           max_tokens: 1500,
           temperature: 0.7
         })
@@ -135,12 +147,16 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
             inputCost,
             outputCost,
             totalCost
-          }
+          },
+          currentModel: currentModel // 添加当前模型信息
         }));
         
-        console.log(`Claude API response successful in ${time.toFixed(2)}s`);
+        console.log(`Claude API response successful in ${time.toFixed(2)}s using model ${currentModel}`);
         console.log(`Cost: $${totalCost.toFixed(6)} (Input: $${inputCost.toFixed(6)}, Output: $${outputCost.toFixed(6)})`);
       }
+      
+      // 轮换到下一个模型
+      setCurrentModelIndex((prevIndex) => (prevIndex + 1) % availableModels.length);
       
       return data.content;
     } catch (error) {
@@ -406,11 +422,62 @@ function Chat({ productsData }) {
           onKeyPress={handleKeyPress}
           placeholder="What kind of shoes are you looking for?"
           disabled={isLoading}
+          style={{
+            fontSize: '16px', // 防止iOS Safari缩放
+            borderRadius: '8px',
+            WebkitAppearance: 'none'
+          }}
         />
-        <button onClick={handleSendMessage} disabled={isLoading}>
+        <button 
+          onClick={handleSendMessage} 
+          disabled={isLoading}
+          style={{
+            WebkitAppearance: 'none',
+            borderRadius: '8px',
+            minHeight: '44px',
+            padding: '0 15px'
+          }}
+        >
           Send
         </button>
       </div>
+      
+      <style jsx>{`
+        .input-container {
+          display: flex;
+          padding: 12px;
+          background: white;
+          border-top: 1px solid #eaeef2;
+          position: sticky;
+          bottom: 0;
+          padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+          z-index: 10;
+        }
+        
+        input {
+          flex: 1;
+          padding: 12px 16px;
+          border: 1px solid #eaeef2;
+          border-radius: 8px;
+          margin-right: 8px;
+          font-size: 16px;
+        }
+        
+        button {
+          background-color: #4a6fff;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          padding: 0 20px;
+          font-weight: 500;
+          cursor: pointer;
+          min-height: 44px;
+        }
+        
+        button:disabled {
+          background-color: #a0aec0;
+        }
+      `}</style>
     </div>
   );
 }
@@ -608,7 +675,55 @@ export default function Home() {
         <Head>
           <title>Footwear Shopping Assistant</title>
           <meta name="description" content="AI-powered footwear shopping assistant" />
+          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-status-bar-style" content="default" />
           <link rel="stylesheet" href="/styles.css" />
+          <style jsx global>{`
+            /* iOS Safari 优化 */
+            * {
+              -webkit-tap-highlight-color: rgba(0,0,0,0);
+              -webkit-touch-callout: none;
+            }
+            
+            /* 修复iOS Safari输入框问题 */
+            input {
+              -webkit-appearance: none;
+              border-radius: 8px;
+            }
+            
+            /* 平滑滚动优化 */
+            .chat-messages {
+              -webkit-overflow-scrolling: touch;
+            }
+            
+            /* iOS底部安全区域适配 */
+            .input-container {
+              padding-bottom: env(safe-area-inset-bottom, 20px);
+              background-color: white;
+            }
+            
+            /* 修复iOS Safari中固定元素的问题 */
+            @supports (-webkit-touch-callout: none) {
+              .input-container {
+                position: sticky;
+                bottom: 0;
+              }
+            }
+            
+            /* 修复iOS中按钮的默认样式 */
+            button {
+              -webkit-appearance: none;
+              background-clip: padding-box;
+            }
+            
+            /* 提高触摸目标尺寸 */
+            .submit-button, 
+            input[type="text"],
+            .product-card {
+              min-height: 44px; /* Apple建议的最小触摸目标尺寸 */
+            }
+          `}</style>
         </Head>
         <div className="loading">Loading product catalog...</div>
       </div>
@@ -620,7 +735,55 @@ export default function Home() {
       <Head>
         <title>Footwear Shopping Assistant</title>
         <meta name="description" content="AI-powered footwear shopping assistant" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <link rel="stylesheet" href="/styles.css" />
+        <style jsx global>{`
+          /* iOS Safari 优化 */
+          * {
+            -webkit-tap-highlight-color: rgba(0,0,0,0);
+            -webkit-touch-callout: none;
+          }
+          
+          /* 修复iOS Safari输入框问题 */
+          input {
+            -webkit-appearance: none;
+            border-radius: 8px;
+          }
+          
+          /* 平滑滚动优化 */
+          .chat-messages {
+            -webkit-overflow-scrolling: touch;
+          }
+          
+          /* iOS底部安全区域适配 */
+          .input-container {
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+            background-color: white;
+          }
+          
+          /* 修复iOS Safari中固定元素的问题 */
+          @supports (-webkit-touch-callout: none) {
+            .input-container {
+              position: sticky;
+              bottom: 0;
+            }
+          }
+          
+          /* 修复iOS中按钮的默认样式 */
+          button {
+            -webkit-appearance: none;
+            background-clip: padding-box;
+          }
+          
+          /* 提高触摸目标尺寸 */
+          .submit-button, 
+          input[type="text"],
+          .product-card {
+            min-height: 44px; /* Apple建议的最小触摸目标尺寸 */
+          }
+        `}</style>
       </Head>
 
       <ChatProvider 

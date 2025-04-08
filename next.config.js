@@ -4,6 +4,7 @@ const nextConfig = {
   env: {
     // 任何您想在客户端暴露的环境变量都可以在这里配置
     // 但不要包含敏感信息如API密钥
+    NEXT_PUBLIC_ACCESS_PASSWORD: process.env.ACCESS_PASSWORD
   }
 }
 
