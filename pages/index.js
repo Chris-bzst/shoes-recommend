@@ -26,8 +26,18 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
     totalCost: 0,
     totalCalls: 0,
     lastCallStats: null,
-    currentModel: availableModels[0] // 添加当前模型信息
+    currentModel: availableModels[0], // 添加当前模型信息
+    currentApiType: 'claude' // 'claude' 或 'openai'
   });
+
+  // 添加设备检测状态
+  const [isAndroid, setIsAndroid] = useState(false);
+  
+  // 检测设备类型
+  useEffect(() => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    setIsAndroid(/android/.test(userAgent));
+  }, []);
 
   // Initialize chat history with system prompt when it becomes available
   useEffect(() => {
@@ -51,10 +61,10 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
 
   // Parse product recommendations from Claude response
   function parseProductRecommendations(response) {
-    // 从响应中提取开头文字
+    // 从响应中提取开头文字 - 但我们最终不会显示这个
     let introText = '';
     const cleanResponse = response;
-    const fixedOutroText = "Would you like more specific recommendations? Feel free to ask for other styles or features.";
+    const fixedOutroText = ""; // 去掉结尾文字
     
     // 只获取产品卡片标签
     const productCardRegex = /<product-card data-id="([^"]+)"><\/product-card>/g;
@@ -78,52 +88,69 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
       }
     }
     
-    // 如果有产品卡片，提取开头文字
-    if (productCardMatches.length > 0) {
-      // 提取开头文字 (从开始到第一个产品卡片)
-      const firstCardIndex = productCardMatches[0].index;
-      if (firstCardIndex > 0) {
-        introText = response.substring(0, firstCardIndex).trim();
-        
-        // 简化开头文字，保留第一句话
-        const firstSentenceMatch = introText.match(/^([^.!?]+[.!?])/);
-        if (firstSentenceMatch) {
-          introText = firstSentenceMatch[1].trim();
-        } else if (introText.length > 120) {
-          introText = introText.substring(0, 120) + '...';
-        }
-      }
-    }
-    
     return {
       text: cleanResponse,
-      introText,
-      outroText: recommendedProducts.length > 0 ? fixedOutroText : '',
+      introText: "", // 不显示任何介绍文字
+      outroText: "", // 不显示任何结尾文字
       products: recommendedProducts
     };
   }
   
-  // Call Claude API via the Next.js API route
-  async function callClaudeAPI(messages) {
+  // 添加API选择状态
+  const [currentApiType, setCurrentApiType] = useState('openai'); // 'claude' 或 'openai'
+  
+  // 修改OpenAI模型列表
+  const openaiModels = [
+    'gpt-4o-mini'  // 只使用GPT-4o-mini
+  ];
+  
+  // 在每次请求后切换API类型
+  const toggleApiType = () => {
+    setCurrentApiType(prev => prev === 'claude' ? 'openai' : 'claude');
+  };
+  
+  // 修改callClaudeAPI函数为通用API调用
+  async function callAPI(messages) {
     const startTime = Date.now();
     
     try {
-      // 获取当前模型
-      const currentModel = availableModels[currentModelIndex];
-      console.log(`Calling Claude API with model: ${currentModel}`);
-      console.log('Calling Claude API with messages:', messages);
+      let endpoint, requestBody, model;
       
-      const response = await fetch('/api/claude', {
+      // 根据当前API类型构建请求
+      if (currentApiType === 'claude') {
+        // 获取当前Claude模型
+        model = availableModels[currentModelIndex];
+        endpoint = '/api/claude';
+        requestBody = {
+          messages: messages,
+          model: model,
+          max_tokens: 1500,
+          temperature: 0.7
+        };
+        
+        console.log(`Calling Claude API with model: ${model}`);
+      } else {
+        // 总是使用GPT-4o-mini
+        model = 'gpt-4o-mini';
+        endpoint = '/api/openai';
+        requestBody = {
+          messages: messages,
+          model: model,
+          max_tokens: 1500,
+          temperature: 0.7
+        };
+        
+        console.log(`Calling OpenAI API with model: ${model}`);
+      }
+      
+      console.log('Calling API with messages:', messages);
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          messages: messages,
-          model: currentModel,
-          max_tokens: 1500,
-          temperature: 0.7
-        })
+        body: JSON.stringify(requestBody)
       });
 
       const data = await response.json();
@@ -148,19 +175,22 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
             outputCost,
             totalCost
           },
-          currentModel: currentModel // 添加当前模型信息
+          currentModel: model,
+          currentApiType: currentApiType
         }));
         
-        console.log(`Claude API response successful in ${time.toFixed(2)}s using model ${currentModel}`);
+        console.log(`API response successful in ${time.toFixed(2)}s using ${currentApiType} model ${model}`);
         console.log(`Cost: $${totalCost.toFixed(6)} (Input: $${inputCost.toFixed(6)}, Output: $${outputCost.toFixed(6)})`);
+        console.log(`Input tokens: ${inputTokens}, Output tokens: ${outputTokens}`);
       }
       
-      // 轮换到下一个模型
-      setCurrentModelIndex((prevIndex) => (prevIndex + 1) % availableModels.length);
+      // // 轮换到下一个模型并切换API类型
+      // setCurrentModelIndex((prevIndex) => (prevIndex + 1) % availableModels.length);
+      // toggleApiType();
       
       return data.content;
     } catch (error) {
-      console.error('Error calling Claude API:', error);
+      console.error(`Error calling ${currentApiType} API:`, error);
       throw error;
     }
   }
@@ -226,8 +256,8 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
       // 打印调试信息
       console.log('Sending messages to API:', formattedMessages);
       
-      // Call Claude API
-      const response = await callClaudeAPI(formattedMessages);
+      // 使用新的通用API调用替换原有的Claude调用
+      const response = await callAPI(formattedMessages);
       
       // Parse product recommendations
       const result = parseProductRecommendations(response);
@@ -280,7 +310,9 @@ function ChatProvider({ children, initialMessages = [], productsData = [], initi
     handleSendMessage,
     handleKeyPress,
     apiStats,
-    messagesEndRef
+    messagesEndRef,
+    isAndroid,  // 添加设备信息到context
+    currentApiType // 添加当前API类型到context
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
@@ -291,7 +323,7 @@ const imageCache = new Map();
 
 // Create a ProductCard component before the main component
 // This ensures it's only defined once and doesn't get redefined on each render
-const ProductCard = React.memo(({ product }) => {
+const ProductCard = React.memo(({ product, isAndroid }) => {
   // Get the cached image URL or create a new one
   if (!imageCache.has(product.id)) {
     imageCache.set(product.id, product.imageLink);
@@ -299,7 +331,19 @@ const ProductCard = React.memo(({ product }) => {
   const imageUrl = imageCache.get(product.id);
   
   const handleClick = () => {
-    window.open(product.productLink, '_blank');
+    let productLink = product.productLink;
+    
+    // 对Android设备添加特殊参数以便跳转到Amazon应用
+    if (isAndroid && productLink.includes('amazon.co.uk')) {
+      // 如果链接中已经有查询参数
+      if (productLink.includes('?')) {
+        productLink += '&psc=1&openapp=1';
+      } else {
+        productLink += '?psc=1&openapp=1';
+      }
+    }
+    
+    window.open(productLink, '_blank');
   };
 
   return (
@@ -313,14 +357,80 @@ const ProductCard = React.memo(({ product }) => {
           decoding="async"
         />
       </div>
-      <div className="product-info">
-        <div className="product-brand">{product.brand}</div>
-        <div className="product-title">{product.name}</div>
-        <div className="product-price">{product.price || ''}</div>
-        <div className="product-description">
-          {product.description ? `${product.description.substring(0, 100)}...` : ''}
-        </div>
-      </div>
+      <div className="product-brand">{product.brand}</div>
+      <style jsx>{`
+        .product-card {
+          cursor: pointer;
+          transition: all 0.3s ease;
+          margin: 0.8rem 0;
+          border-radius: 16px;
+          overflow: hidden;
+          background: white;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+          flex: 0 0 calc(20% - 1rem);
+          max-width: calc(20% - 1rem);
+          padding-bottom: 8px;
+          display: flex;
+          flex-direction: column;
+          position: relative;
+        }
+        
+        .product-card:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+        }
+        
+        .product-image-container {
+          width: 100%;
+          padding-top: 100%;
+          position: relative;
+          background: #f9f9f9;
+          overflow: hidden;
+        }
+        
+        .product-image {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          padding: 10px;
+        }
+        
+        .product-brand {
+          font-size: 0.75rem;
+          color: #666;
+          padding: 0 10px;
+          text-align: center;
+          margin-top: 5px;
+          font-weight: 500;
+        }
+        
+        @media (max-width: 992px) {
+          .product-card {
+            flex: 0 0 calc(33.33% - 1rem);
+            max-width: calc(33.33% - 1rem);
+          }
+        }
+        
+        @media (max-width: 576px) {
+          .product-card {
+            flex: 0 0 100%;
+            max-width: 100%;
+            margin: 0.75rem 0;
+            padding-bottom: 12px;
+          }
+          
+          .product-image-container {
+            padding-top: 80%; /* 降低图片容器高度以展示更好的比例 */
+          }
+          
+          .product-image {
+            padding: 15px;
+          }
+        }
+      `}</style>
     </div>
   );
 }, (prevProps, nextProps) => {
@@ -329,52 +439,133 @@ const ProductCard = React.memo(({ product }) => {
 });
 
 // Product recommendation component
-const ProductRecommendation = React.memo(({ introText, products, outroText }) => {
+const ProductRecommendation = React.memo(({ products }) => {
+  const { isAndroid } = React.useContext(ChatContext);
+  
   if (!products || products.length === 0) return null;
   
   return (
     <div className="recommendation-container">
-      {introText && <div className="recommendation-intro">{introText}</div>}
-      
       <div className="product-cards-container">
         {products.map((product) => (
-          <ProductCard key={`product-${product.id}`} product={product} />
+          <ProductCard 
+            key={`product-${product.id}`} 
+            product={product} 
+            isAndroid={isAndroid}
+          />
         ))}
       </div>
       
-      {outroText && <div className="recommendation-outro">{outroText}</div>}
+      <style jsx>{`
+        .recommendation-container {
+          width: 100%;
+          margin-bottom: 1rem;
+        }
+        
+        .product-cards-container {
+          display: flex;
+          flex-wrap: wrap;
+          margin: 0 -0.5rem;
+          justify-content: flex-start;
+          align-items: stretch;
+        }
+        
+        @media (max-width: 576px) {
+          .product-cards-container {
+            margin: 0;
+            flex-direction: column;
+          }
+        }
+      `}</style>
     </div>
   );
-}, (prevProps, nextProps) => {
-  // Compare products by ID rather than length
-  if (prevProps.products?.length !== nextProps.products?.length) return false;
-  
-  // Compare each product ID
-  for (let i = 0; i < prevProps.products?.length; i++) {
-    if (prevProps.products[i].id !== nextProps.products[i].id) return false;
-  }
-  
-  return true;
 });
 
 // Message item component
 const MessageItem = React.memo(({ message }) => {
-  // User messages or assistant messages without products
-  if (message.role === 'user' || (!message.products || message.products.length === 0)) {
+  // 用户消息保持不变
+  if (message.role === 'user') {
     return (
-      <div className={`message ${message.role === 'user' ? 'user-message' : 'ai-message'}`}>
+      <div className="message user-message">
         {message.content}
       </div>
     );
   }
   
-  // Assistant messages with product recommendations
+  // 修改产品推荐消息结构，将logo放在上方
+  if (message.products && message.products.length > 0) {
+    return (
+      <div className="ai-message-container ai-product-container">
+        <div className="ai-header">
+          <img src="/logo.png" alt="AI" className="ai-logo" />
+        </div>
+        <div className="ai-content-wrapper">
+          <ProductRecommendation products={message.products} />
+        </div>
+        
+        <style jsx>{`
+          .ai-message-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            margin-bottom: 1.5rem;
+            width: 100%;
+          }
+          
+          .ai-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+          }
+          
+          .ai-logo {
+            width: 48px;
+            height: auto;
+            object-fit: contain;
+            border-radius: 0;
+          }
+          
+          .ai-content-wrapper {
+            width: 100%;
+          }
+        `}</style>
+      </div>
+    );
+  }
+  
+  // 普通AI消息保持左侧显示
   return (
-    <ProductRecommendation 
-      introText={message.introText} 
-      products={message.products} 
-      outroText={message.outroText}
-    />
+    <div className="ai-message-container">
+      <div className="ai-logo-container">
+        <img src="/logo.png" alt="AI" className="ai-logo" />
+      </div>
+      <div className="message ai-message">
+        {message.content}
+      </div>
+      
+      <style jsx>{`
+        .ai-message-container {
+          display: flex;
+          align-items: flex-start;
+          margin-bottom: 1rem;
+        }
+        
+        .ai-logo-container {
+          margin-right: 12px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: flex-start;
+          padding-top: 10px;
+        }
+        
+        .ai-logo {
+          width: 48px;
+          height: auto;
+          object-fit: contain;
+          border-radius: 0;
+        }
+      `}</style>
+    </div>
   );
 }, (prevProps, nextProps) => {
   // Only re-render if the message ID changes
@@ -486,8 +677,53 @@ function Chat({ productsData }) {
 const Header = React.memo(() => {
   return (
     <div className="header">
-      <h1>Footwear Shopping Assistant</h1>
-      <p>Tell me what shoes you're looking for and I'll recommend the best options for you!</p>
+      <div className="title-container">
+        <img src="/title.png" alt="Footwear Shopping Assistant" className="title-image" />
+      </div>
+      
+      <style jsx>{`
+        .header {
+          margin-bottom: 2rem;
+          padding: 0;
+          background: transparent;
+          box-shadow: none;
+        }
+        
+        .title-container {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          padding: 1.5rem 1rem;
+          background: linear-gradient(135deg, #ffffff, #f8f9fa);
+          border-radius: 16px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+          border: 1px solid rgba(0, 0, 0, 0.04);
+          max-width: 100%;
+          margin: 0 auto;
+          overflow: hidden;
+        }
+        
+        .title-image {
+          max-width: 85%;
+          height: auto;
+          object-fit: contain;
+          transition: transform 0.3s ease;
+        }
+        
+        .title-image:hover {
+          transform: scale(1.02);
+        }
+        
+        @media (max-width: 768px) {
+          .title-container {
+            padding: 1.2rem 0.8rem;
+          }
+          
+          .title-image {
+            max-width: 90%;
+          }
+        }
+      `}</style>
     </div>
   );
 });
@@ -528,18 +764,19 @@ export default function Home() {
         const newSystemPrompt = getSystemPrompt(products);
         setSystemPrompt(newSystemPrompt);
         
-        // 添加欢迎消息到UI
+        // 修改欢迎消息
         setInitialMessages([{
           id: 'welcome-message',
           role: 'assistant',
-          content: 'Hello! I\'m your footwear shopping assistant. Tell me what kind of shoes you\'re looking for, and I\'ll recommend the best options for you!'
+          content: 'Hello, I am Rufus, an Amazon AI Assistant. What do you need help with today?'
         }]);
       } catch (error) {
         console.error('Failed to load products:', error);
+        // 同样修改错误情况下的欢迎消息
         setInitialMessages([{
           id: 'error-message',
           role: 'assistant',
-          content: 'Hello! I\'m your footwear shopping assistant. Note: I\'m currently working with a limited product catalog. Some products may not be available.'
+          content: 'Hello, I am Rufus, an Amazon AI Assistant. What do you need help with today? Note: I\'m currently working with a limited product catalog.'
         }]);
       }
     }
@@ -662,7 +899,7 @@ export default function Home() {
     prompt += "4. Highlight key features and benefits of the recommended products.\n";
     prompt += "5. For each recommended product, include a product card tag in this format: <product-card data-id=\"PRODUCT_ID\"></product-card>\n";
     prompt += "   where PRODUCT_ID is the ID of the product (e.g., product_1, product_2, etc.).\n";
-    prompt += "6. Recommend at most 2-3 products per response to avoid overwhelming the user.\n";
+    prompt += "6. Always recommend exactly 5 products in each response. If there are fewer relevant products, include other similar ones to reach 5 total recommendations.\n";
     prompt += "7. If you cannot find a suitable product, suggest what information the user could provide to help you find better matches.\n";
     
     return prompt;
@@ -782,6 +1019,102 @@ export default function Home() {
           input[type="text"],
           .product-card {
             min-height: 44px; /* Apple建议的最小触摸目标尺寸 */
+          }
+          
+          .ai-message-container {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+          }
+          
+          .ai-logo-container {
+            margin-right: 10px;
+            flex-shrink: 0;
+          }
+          
+          .ai-logo {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+          }
+          
+          /* 优化消息容器 */
+          .chat-messages {
+            padding: 1rem;
+            background-color: #f8f9fa;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+          }
+          
+          /* 优化产品卡片 */
+          .product-card {
+            transition: all 0.3s ease;
+            overflow: hidden;
+          }
+          
+          .product-card:active {
+            transform: scale(0.98);
+          }
+          
+          /* 优化图片渲染 */
+          img {
+            image-rendering: -webkit-optimize-contrast;
+            backface-visibility: hidden;
+          }
+          
+          /* 为移动设备优化触摸区域 */
+          @media (max-width: 768px) {
+            .product-card {
+              min-height: 180px;
+            }
+          }
+          
+          /* 移动端产品卡片优化 */
+          @media (max-width: 576px) {
+            .ai-content-wrapper {
+              width: 100%;
+            }
+            
+            .product-cards-container {
+              display: flex;
+              flex-direction: column;
+              width: 100%;
+            }
+            
+            .product-card {
+              min-height: auto;
+              flex-basis: 100% !important;
+              max-width: 100% !important;
+              margin: 0.75rem 0 !important;
+            }
+            
+            .product-image-container {
+              height: 0;
+              padding-top: 80%;
+              position: relative;
+            }
+            
+            .product-image {
+              object-fit: contain !important;
+              padding: 15px !important;
+            }
+            
+            .ai-message-container.ai-product-container {
+              flex-direction: column !important;
+            }
+            
+            .ai-header {
+              margin-bottom: 12px;
+            }
+          }
+          
+          /* 添加特定产品列表的容器样式 */
+          .ai-product-container {
+            flex-direction: column !important;
+          }
+          
+          .ai-product-container .ai-header {
+            align-self: flex-start;
           }
         `}</style>
       </Head>
