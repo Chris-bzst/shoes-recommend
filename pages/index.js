@@ -701,11 +701,12 @@ const Header = React.memo(() => {
           max-width: 100%;
           margin: 0 auto;
           overflow: hidden;
+          height: 6rem;
         }
         
         .title-image {
           max-width: 85%;
-          height: auto;
+          height: 100%;
           object-fit: contain;
           transition: transform 0.3s ease;
         }
@@ -720,7 +721,7 @@ const Header = React.memo(() => {
           }
           
           .title-image {
-            max-width: 90%;
+            max-width: 80%;
           }
         }
       `}</style>
